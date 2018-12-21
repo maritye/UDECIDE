@@ -1,0 +1,448 @@
+---
+title: "Initial Decadal Predition Notebook"
+output: html_notebook
+---
+
+This notebook explores the different ways to present decadal predictions of temperature and precipitation with comparison to climate projections. More information on [UDECIDE](http://mmm.ucar.edu/udecide) is available online.
+
+This is created as a notebook as the data are far too large to download from Cheyenne directly, so a preview of the code and explanation is all that will be generated.
+<!-- The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed. -->
+
+Data are stored on cheyenne: 
+/gpfs/fs1/work/done/udecide/CESM_LE
+/gpfs/fs1/work/done/udecide/CESM_DP_LE
+
+*HR*.nc are for 10 HydrologicRegions of California based on the shapefile DWR_HydroligicRegions-utm11.shp  
+*RR*.nc are for the RussianRiverBasin based on the shapefile RussianRiverBasin.shp
+
+CESM_LE refers to the projection large ensemble (40 members). 
+Daily data: 20060101 - 20801231
+Variables:  
+PRECT: Total Precipitation (liquid and solid) over the previous 24 hours. (mm/day)
+TREFHT: Daily average temperature at 2meters above the ground (average over the previous 24 hours). (K)
+TREFHTMAX and TREFHTMIN are being extracted.
+
+CESM_DP_LE  refers to the decadal prediction large ensemble (40 members)
+Daily Data: 20151102 - 20260101
+Variables:
+PRECT: Total Precipitation (liquid and solid) over the previous 24 hours. (mm/day).
+TREFHTMN: Daily minimum temperature at 2meters above the ground (over the previous 24 hours). (K)
+TREFHTMX: Daily maximum temperature at 2meters above the ground (over the previous 24 hours). (K)
+Drift correction is yet to be applied to these data. 
+
+Two shapefiles are also available (stored in ~/Analysis/UDECIDE/Data/) corresponding with the data above.
+1) DWR_HydroligicRegions-utm11.shp: For 10 hydrologic regions of CA. Includes Sacramento River, San Joaquin River, and Tulare River Basins Boundaries Map.
+2) RussianRiverBasin.shp: Russian River Basin Boundary Map.
+
+***
+Figures to be produced for discussion with Sonoma County and CA DWR are:
+1 Line chart comparison of historic, projected and predicted annual mean temperature anomalies (per Mike Anderson presentation http://cw3e.ucsd.edu/IARC_2018/Applications_and_Communications/Anderson_IARC2018.pdf)
+2 Line chart comparison of historic, projected and predicted annual variability in temperature
+3 Climate stripes comparison of annual mean temperature anomalies
+4 Scatter plots of historic, projected and predicted temp vs. precip anomalies
+5 Comparison of daily temperature anomalies for median of ensemble.
+
+Working with anomaly data from precipitation, daily temp min and daily temp max. Can't calculate anomaly in daily average temp directly from the anomalies.
+
+***
+
+Commands are all run in Cheynne.
+
+First load packages, identify relevant model output, and rearrange to select by hydrologic region rather than by ensemble member. Then output RData file for use in home directory.
+
+start with decadal ensembles
+
+cd /gpfs/fs1/work/done/udecide/CESM_DP_LE
+module load R
+R
+
+*** Why are the data from november 2015 to october 2025?***
+
+```{r}
+library(ncdf4)
+library(lubridate)
+
+alltempsDP <- list.files(pattern = "TREFHTM")
+alltempanomsDP <- alltempsDP[grep("anom", alltempsDP)]
+RRtempanomsDP <- alltempanomsDP[grep("RR", alltempanomsDP)]
+RRTXanomsDP <- RRtempanomsDP[grep("TMX", RRtempanomsDP)]
+RRTNanomsDP <- RRtempanomsDP[grep("TMN", RRtempanomsDP)]
+HRtempanomsDP <- alltempanomsDP[grep("HR", alltempanomsDP)]
+HRTXanomsDP <- HRtempanomsDP[grep("TMX", HRtempanomsDP)]
+HRTNanomsDP <- HRtempanomsDP[grep("TMN", HRtempanomsDP)]
+
+allprecipDP <- list.files(pattern = "PRECT_DP_anom")
+RRPanomsDP <- allprecipDP[grep("RR", allprecipDP)]
+HRPanomsDP <- allprecipDP[grep("HR", allprecipDP)]
+
+dple_dates <- seq.Date(from = ymd("2015-11-02"), to= ymd("2025-11-01"), by="day")
+# data already have no leap days.
+
+dpHUC.tn <- dpHUC.tx <- dpHUC.p <- array(NA, c(3650,40, 10), dimnames=list(1:3650, paste0("ensemb", 1:40), paste0("huc", 1:10))) # daily time series x ensemble member x huc
+dpRR.tn <- dpRR.tx <- dpRR.p <- array(NA, c(3650,40), dimnames=list(1:3650, paste0("ensemb", 1:40))) # daily time series x ensemble member
+
+# loop to get the data in to the arrays.
+for(iens in 1:40){
+# First for HUC data
+    #precip predictions
+  tempyhuc.p <- nc_open(HRPanomsDP[iens])
+  dp.huc.prec <- ncvar_get(tempyhuc.p, "PRECT")
+  # t min predictions
+  tempyhuc.tn <- nc_open(HRTNanomsDP[iens])
+  dp.huc.tnrec <- ncvar_get(tempyhuc.tn, "TREFHTMN")
+  # t max predictions
+  tempyhuc.tx <- nc_open(HRTXanomsDP[iens])
+  dp.huc.txrec <- ncvar_get(tempyhuc.tx, "TREFHTMX")
+  
+  for(ihuc in 1:10){
+    dpHUC.p[,iens, ihuc] <- dp.huc.prec[ihuc,]
+    dpHUC.tn[,iens, ihuc] <- dp.huc.tnrec[ihuc,]
+    dpHUC.tx[,iens, ihuc] <- dp.huc.txrec[ihuc,]
+  }
+  
+  # then for Russian River
+      #precip predictions
+  tempyrr.p <- nc_open(RRPanomsDP[iens])
+  dp.rr.prec <- ncvar_get(tempyrr.p, "PRECT")
+  dpRR.p[,iens] <- dp.rr.prec
+  # t min predictions
+  tempyrr.tn <- nc_open(RRTNanomsDP[iens])
+  dp.rr.tn <- ncvar_get(tempyrr.tn, "TREFHTMN")
+  dpRR.tn[,iens] <- dp.rr.tn
+  # t max predictions
+  tempyrr.tx <- nc_open(RRTXanomsDP[iens])
+  dp.rr.tx <- ncvar_get(tempyrr.tx, "TREFHTMX")
+  dpRR.tx[,iens] <- dp.rr.tx
+
+  
+  # and close all the files again.
+  nc_close(tempyhuc.p)
+  nc_close(tempyhuc.tn)
+  nc_close(tempyhuc.tx)
+  nc_close(tempyrr.p)
+  nc_close(tempyrr.tn)
+  nc_close(tempyrr.tx)
+}
+
+save(dple_dates, dpHUC.tx, dpHUC.tn, dpHUC.p, file = "/gpfs/u/home/maritye/UDECIDE/data/CESM_DP_LE_HUC_anoms.RData")
+save(dple_dates, dpRR.tx, dpRR.tn, dpRR.p, file = "/gpfs/u/home/maritye/UDECIDE/data/CESM_DP_LE_RR_anoms.RData")
+
+
+```
+
+Repeat this for the projection data.
+
+```{r}
+setwd("/gpfs/fs1/work/done/udecide/CESM_LE")
+alltempsPROJ <- list.files(pattern = "TREFHTM")
+alltempanomsPROJ <- alltempsPROJ[grep("anom", alltempsPROJ)]
+RRtempanomsPROJ <- alltempanomsPROJ[grep("RR", alltempanomsPROJ)]
+RRTXanomsPROJ <- RRtempanomsPROJ[grep("TMX", RRtempanomsPROJ)]
+RRTNanomsPROJ <- RRtempanomsPROJ[grep("TMN", RRtempanomsPROJ)]
+HRtempanomsPROJ <- alltempanomsPROJ[grep("HR", alltempanomsPROJ)]
+HRTXanomsPROJ <- HRtempanomsPROJ[grep("TMX", HRtempanomsPROJ)]
+HRTNanomsPROJ <- HRtempanomsPROJ[grep("TMN", HRtempanomsPROJ)]
+
+allprecipPROJ <- list.files(pattern = "PRECT_BRCP85_anom")
+RRPanomsPROJ <- allprecipPROJ[grep("RR", allprecipPROJ)]
+HRPanomsPROJ <- allprecipPROJ[grep("HR", allprecipPROJ)]
+
+projle_dates <- seq.Date(from = ymd("2006-01-01"), to= ymd("2080-12-31"), by="day")
+# data already have no leap days.
+
+projHUC.tn <- projHUC.tx <- projHUC.p <- array(NA, c(27375,40, 10), dimnames=list(1:27375, paste0("ensemb", 1:40), paste0("huc", 1:10))) # daily time series x ensemble member x huc
+projRR.tn <- projRR.tx <- projRR.p <- array(NA, c(27375,40), dimnames=list(1:27375, paste0("ensemb", 1:40))) # daily time series x ensemble member
+
+# loop to get the data in to the arrays.
+for(iens in 1:40){
+# First for HUC data
+    #precip predictions
+  tempyhuc.p <- nc_open(HRPanomsPROJ[iens])
+  proj.huc.prec <- ncvar_get(tempyhuc.p, "PRECT")
+  # t min predictions
+  tempyhuc.tn <- nc_open(HRTNanomsPROJ[iens])
+  proj.huc.tnrec <- ncvar_get(tempyhuc.tn, "TREFHTMN")
+  # t max predictions
+  tempyhuc.tx <- nc_open(HRTXanomsPROJ[iens])
+  proj.huc.txrec <- ncvar_get(tempyhuc.tx, "TREFHTMX")
+  
+  for(ihuc in 1:10){
+    projHUC.p[,iens, ihuc] <- proj.huc.prec[ihuc,]
+    projHUC.tn[,iens, ihuc] <- proj.huc.tnrec[ihuc,]
+    projHUC.tx[,iens, ihuc] <- proj.huc.txrec[ihuc,]
+  }
+  
+  # then for Russian River
+      #precip predictions
+  tempyrr.p <- nc_open(RRPanomsPROJ[iens])
+  proj.rr.prec <- ncvar_get(tempyrr.p, "PRECT")
+  projRR.p[,iens] <- proj.rr.prec
+  # t min predictions
+  tempyrr.tn <- nc_open(RRTNanomsPROJ[iens])
+  proj.rr.tn <- ncvar_get(tempyrr.tn, "TREFHTMN")
+  projRR.tn[,iens] <- proj.rr.tn
+  # t max predictions
+  tempyrr.tx <- nc_open(RRTXanomsPROJ[iens])
+  proj.rr.tx <- ncvar_get(tempyrr.tx, "TREFHTMX")
+  projRR.tx[,iens] <- proj.rr.tx
+
+  
+  # and close all the files again.
+  nc_close(tempyhuc.p)
+  nc_close(tempyhuc.tn)
+  nc_close(tempyhuc.tx)
+  nc_close(tempyrr.p)
+  nc_close(tempyrr.tn)
+  nc_close(tempyrr.tx)
+}
+
+save(projle_dates, projHUC.tx, projHUC.tn, projHUC.p, file = "/gpfs/u/home/maritye/UDECIDE/data/CESM_PROJ_LE_HUC_anoms.RData")
+save(projle_dates, projRR.tx, projRR.tn, projRR.p, file = "/gpfs/u/home/maritye/UDECIDE/data/CESM_PROJ_LE_RR_anoms.RData")
+
+```
+
+May also want to do the same for climatology data. But for now just work with the anomalies
+Observations are stored in /gpfs/fs1/work/done/udecide/PRISM
+Available as climatology (1981-2010) for grid cells, and daily data for 1981-2017 for HUCs and Russian River.
+Create anomaly files for HUC and RR to be able to compare with anomalies above.
+
+```{r}
+setwd("/gpfs/fs1/work/done/udecide/PRISM")
+
+dailyfiles <- list.files(pattern = "PRISM_1981-2017")
+
+#daily absolute values for hr or rr 1981-2017
+
+clim_prec_tempy <- nc_open(precfiles[1])
+clim_prec_huc <- ncvar_get(clim_prec_tempy, "PR")
+clim_dates <- ncvar_get(clim_prec_tempy, "date")
+
+```
+
+Create images that only need the anomalies. Come back to include the observations at a later stage when they are available.
+
+Read in RData files, calculate minimum, maximum, median and 5% and 95% percentiles. Working in ..... maritye/UDECIDE/data/
+
+```{r}
+
+load("CESM_DP_LE_HUC_anoms.RData")
+load("CESM_PROJ_LE_HUC_anoms.RData")
+load("CESM_DP_LE_RR_anoms.RData")
+load("CESM_PROJ_LE_RR_anoms.RData")
+
+# quantiles just of the temperature sets
+### These DO NOT give the same results!!
+# dpHUCtn.qs <- apply(dpHUC.tn[,,1], 1, function(x) quantile(x, na.rm=T, c(0,.05,.5,.95,1)))
+# dpHUCtn.an <- apply(dpHUCtn.qs, 1, function(x) running(x, by=365, width=365))
+
+dphucan.tn <- dphucan.tx <- dphucan.p <- array(NA, c(10,40,10))
+for (i in 1:10){
+    dphucan.tn[,,i] <- apply(dpHUC.tn[,,i], 2, function(x) running(x, by=365, width = 365))
+    dphucan.tx[,,i] <- apply(dpHUC.tx[,,i], 2, function(x) running(x, by=365, width = 365))
+    dphucan.p[,,i] <- apply(dpHUC.p[,,i], 2, function(x) running(x, by=365, width = 365))
+}
+
+dprran.tn <- apply(dpRR.tn, 2, function(x) running(x, by=365, width = 365))
+dprran.tx <- apply(dpRR.tx, 2, function(x) running(x, by=365, width = 365))
+dprran.p <- apply(dpRR.p, 2, function(x) running(x, by=365, width = 365))
+
+dphucq.tn <- dphucq.tx <- dphucq.p <- array(NA, c(10,5,10))
+for(j in 1:10){
+    dphucq.tn[,,j] <- apply(dphucan.tn[,,j], 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+    dphucq.tx[,,j] <- apply(dphucan.tx[,,j], 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+    dphucq.p[,,j] <- apply(dphucan.p[,,j], 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+}
+
+dprrq.tn <- apply(dprran.tn, 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+dprrq.tx <- apply(dprran.tx, 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+dprrq.p <- apply(dprran.p, 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+
+projhucan.tn <- projhucan.tx <- projhucan.p <- array(NA, c(75,40,10))
+for (i in 1:10){
+    projhucan.tn[,,i] <- apply(projHUC.tn[,,i], 2, function(x) running(x, by=365, width = 365))
+    projhucan.tx[,,i] <- apply(projHUC.tx[,,i], 2, function(x) running(x, by=365, width = 365))
+    projhucan.p[,,i] <- apply(projHUC.p[,,i], 2, function(x) running(x, by=365, width = 365))
+}
+
+projrran.tn <- apply(projRR.tn, 2, function(x) running(x, by=365, width = 365))
+projrran.tx <- apply(projRR.tx, 2, function(x) running(x, by=365, width = 365))
+projrran.p <- apply(projRR.p, 2, function(x) running(x, by=365, width = 365))
+
+projhucq.tn <- projhucq.tx <- projhucq.p <- array(NA, c(75,5,10))
+for(j in 1:10){
+    projhucq.tn[,,j] <- apply(projhucan.tn[,,j], 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+    projhucq.tx[,,j] <- apply(projhucan.tx[,,j], 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+    projhucq.p[,,j] <- apply(projhucan.p[,,j], 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+}
+
+projrrq.tn <- apply(projrran.tn, 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+projrrq.tx <- apply(projrran.tx, 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+projrrq.p <- apply(projrran.p, 1, function(x) quantile(x, na.rm = T, c(0,0.05, .5, .95,1)))
+
+
+save(projhucq.p, projhucq.tx, projhucan.tx, projhucq.p, projhucq.tn, projhucq.tx, file = "/gpfs/u/home/maritye/UDECIDE/data/CESM_PROJ_LE_HUC_ann_quants.RData")
+
+save(projrrq.p, projrrq.tx, projrran.tx, projrrq.p, projrrq.tn, projrrq.tx, file = "/gpfs/u/home/maritye/UDECIDE/data/CESM_PROJ_LE_RR_ann_quants.RData")
+
+
+```
+
+Now create the figures. Need to go back to be able to add in the observations at some point.
+First set of figures are line charts of the median projections, median predictions, and observations, with confidence limits for anomalies in mean daily temperature minima and maxima, and mean anomaly in daily precipitation. NEED TO CHECK WHETHER THE MEAN ANOMALY IN MEAN DAILY PRECIP *365 IS THE SAME AS ANOMALY IN ANNUAL TOTAL PRECIPITATION!!!!
+
+
+```{r}
+pax <-  c("gghighlight", "ggrepel", "ggplot2", "lubridate", "bindrcpp", 
+  "tibble",  "purrr", "tidyr", "dplyr", "stats",  
+  "graphics",  "grDevices", "utils", "datasets",  "methods",  
+  "base") 
+sapply(pax, function(x) {library(x, character.only = TRUE)})
+
+load("CESM_PROJ_LE_HUC_ann_quants.RData")
+load("CESM_PROJ_LE_RR_ann_quants.RData")
+load("CESM_DP_LE_HUC_ann_quants.RData")
+load("CESM_DP_LE_RR_ann_quants.RData")
+
+proj_years <- 2006:2080
+dp_years <- 2016:2025
+
+### Figure 1 Mean annual temp and precip anomaly comparisons
+
+pdf("AnnualMeanTX_anom_line_chart.pdf", "a4r")
+for(iplot in 1:10){
+plot(0,0, type="n", xlim=c(2000,2085), ylim=c(-3,7), ylab="Temperature Anomaly deg C", xlab="Years",
+     main=paste0("Mean annual daily maximum temperature, region ", iplot))
+
+   polygon(x=c(proj_years, rev(proj_years)), y=c(projhucq.tx[,2, iplot],rev(projhucq.tx[ ,4,iplot])), col="grey", border =  "grey")
+  polygon(x=c(dp_years, rev(dp_years)), y=c(dphucq.tx[,2, iplot],rev(dphucq.tx[ ,4,iplot])), col="red", density = 10,  angle=45,border = "red")
+ lines(proj_years, projhucq.tx[,1, iplot],  lty=2)
+  lines(proj_years, projhucq.tx[,5, iplot],  lty=2)
+  # lines(dp_years,dphucq.tx[,1, iplot], col="blue", lty=2)
+  # lines(dp_years,dphucq.tx[,5, iplot], col="blue", lty=2)
+  lines(proj_years, projhucq.tx[,3,iplot], lwd=2, col="black")
+  lines(dp_years, dphucq.tx[,3,iplot], lwd=2, col="red")
+#obs to go in here.
+# legend("topleft", bg="white", c("Project Median", "Projection 95% limits", "Projection Max and Min",
+#                          "Decadal Prediction Median", "Decadal Prediction 95% limits", "Decadal Prediction Max and Min"),
+#                          lwd = c(2,1,1,2,1,1), lty = c(1,0,2,1,0,2), col=c(1,1,"grey", 2, 2, "blue"),
+#                           density= c(rep(0,5),10))  
+}
+
+plot(0,0, type="n", xlim=c(2000,2085), ylim=c(-3,7), ylab="Temperature Anomaly deg C", xlab="Years",
+     main="Mean annual daily maximum temperature, Russian River")
+
+   polygon(x=c(proj_years, rev(proj_years)), y=c(projrrq.tx[2,],rev(projrrq.tx[ 4,])), col="grey", border =  "grey")
+  polygon(x=c(dp_years, rev(dp_years)), y=c(dprrq.tx[2,],rev(dprrq.tx[ 4,])), col="red", density = 10,  angle=45,border = "red")
+ lines(proj_years, projrrq.tx[1,],  lty=2)
+  lines(proj_years, projrrq.tx[5,],  lty=2)
+  # lines(dp_years,dprrq.tx[1,], col="blue", lty=2)
+  # lines(dp_years,dprrq.tx[5,], col="blue", lty=2)
+  lines(proj_years, projrrq.tx[3,], lwd=2, col="black")
+  lines(dp_years, dprrq.tx[3,], lwd=2, col="red")
+
+dev.off()
+
+pdf("AnnualMeanTN_anom_line_chart.pdf", "a4r")
+for(iplot in 1:10){
+plot(0,0, type="n", xlim=c(2000,2085), ylim=c(-3,7), ylab="Temperature Anomaly deg C", xlab="Years",
+     main=paste0("Mean annual daily minimum temperature, region ", iplot))
+
+   polygon(x=c(proj_years, rev(proj_years)), y=c(projhucq.tn[,2, iplot],rev(projhucq.tn[ ,4,iplot])), col="grey", border =  "grey")
+  polygon(x=c(dp_years, rev(dp_years)), y=c(dphucq.tn[,2, iplot],rev(dphucq.tn[ ,4,iplot])), col="red", density = 10,  angle=45,border = "red")
+ lines(proj_years, projhucq.tn[,1, iplot],  lty=2)
+  lines(proj_years, projhucq.tn[,5, iplot],  lty=2)
+  # lines(dp_years,dphucq.tn[,1, iplot], col="blue", lty=2)
+  # lines(dp_years,dphucq.tn[,5, iplot], col="blue", lty=2)
+  lines(proj_years, projhucq.tn[,3,iplot], lwd=2, col="black")
+  lines(dp_years, dphucq.tn[,3,iplot], lwd=2, col="red")
+#obs to go in here.
+# legend("topleft", bg="white", c("Project Median", "Projection 95% limits", "Projection Max and Min",
+#                          "Decadal Prediction Median", "Decadal Prediction 95% limits", "Decadal Prediction Max and Min"),
+#                          lwd = c(2,1,1,2,1,1), lty = c(1,0,2,1,0,2), col=c(1,1,"grey", 2, 2, "blue"),
+#                           density= c(rep(0,5),10))  
+}
+
+plot(0,0, type="n", xlim=c(2000,2085), ylim=c(-3,7), ylab="Temperature Anomaly deg C", xlab="Years",
+     main="Mean annual daily minimum temperature, Russian River")
+
+   polygon(x=c(proj_years, rev(proj_years)), y=c(projrrq.tn[2,],rev(projrrq.tn[ 4,])), col="grey", border =  "grey")
+  polygon(x=c(dp_years, rev(dp_years)), y=c(dprrq.tn[2,],rev(dprrq.tn[ 4,])), col="red", density = 10,  angle=45,border = "red")
+ lines(proj_years, projrrq.tn[1,],  lty=2)
+  lines(proj_years, projrrq.tn[5,],  lty=2)
+  # lines(dp_years,dprrq.tn[1,], col="blue", lty=2)
+  # lines(dp_years,dprrq.tn[5,], col="blue", lty=2)
+  lines(proj_years, projrrq.tn[3,], lwd=2, col="black")
+  lines(dp_years, dprrq.tn[3,], lwd=2, col="red")
+
+dev.off()
+
+#### Check whether the mean of the anomalies is the same as the anomaly in total annual precip*365 *****
+pdf("AnnualMeanPR_anom_line_chart.pdf", "a4r")
+for(iplot in 1:10){
+plot(0,0, type="n", xlim=c(2000,2085), ylim=c(-3,7), ylab="Precipitation Anomaly mm", xlab="Years",
+     main=paste0("Mean annual daily precipitation, region ", iplot))
+
+   polygon(x=c(proj_years, rev(proj_years)), y=c(projhucq.p[,2, iplot],rev(projhucq.p[ ,4,iplot])), col="grey", border =  "grey")
+  polygon(x=c(dp_years, rev(dp_years)), y=c(dphucq.p[,2, iplot],rev(dphucq.p[ ,4,iplot])), col="red", density = 10,  angle=45,border = "red")
+ lines(proj_years, projhucq.p[,1, iplot],  lty=2)
+  lines(proj_years, projhucq.p[,5, iplot],  lty=2)
+  # lines(dp_years,dphucq.p[,1, iplot], col="blue", lty=2)
+  # lines(dp_years,dphucq.p[,5, iplot], col="blue", lty=2)
+  lines(proj_years, projhucq.p[,3,iplot], lwd=2, col="black")
+  lines(dp_years, dphucq.p[,3,iplot], lwd=2, col="red")
+#obs to go in here.
+# legend("topleft", bg="white", c("Project Median", "Projection 95% limits", "Projection Max and Min",
+#                          "Decadal Prediction Median", "Decadal Prediction 95% limits", "Decadal Prediction Max and Min"),
+#                          lwd = c(2,1,1,2,1,1), lty = c(1,0,2,1,0,2), col=c(1,1,"grey", 2, 2, "blue"),
+#                           density= c(rep(0,5),10))  
+}
+
+plot(0,0, type="n", xlim=c(2000,2085), ylim=c(-3,7), ylab="Precipitation Anomaly mm", xlab="Years",
+     main="Mean annual daily precipitation, Russian River")
+
+   polygon(x=c(proj_years, rev(proj_years)), y=c(projrrq.p[2,],rev(projrrq.p[ 4,])), col="grey", border =  "grey")
+  polygon(x=c(dp_years, rev(dp_years)), y=c(dprrq.p[2,],rev(dprrq.p[ 4,])), col="red", density = 10,  angle=45,border = "red")
+ lines(proj_years, projrrq.p[1,],  lty=2)
+  lines(proj_years, projrrq.p[5,],  lty=2)
+  # lines(dp_years,dprrq.p[1,], col="blue", lty=2)
+  # lines(dp_years,dprrq.p[5,], col="blue", lty=2)
+  lines(proj_years, projrrq.p[3,], lwd=2, col="black")
+  lines(dp_years, dprrq.p[3,], lwd=2, col="red")
+
+dev.off()
+
+```
+
+
+
+
+Some supplementary figures just in case there is time to discuss additional information or alternative presentations.
+```{r}
+# Climate stripes - supplementary figure only.
+
+
+# 10 Class Divergent Rd-Bu: http://colorbrewer2.org/#type=diverging&scheme=RdBu&n=10
+temp_cols <- rev(c('#67001f','#b2182b','#d6604d','#f4a582','#fddbc7',
+                   '#d1e5f0','#92c5de','#4393c3','#2166ac','#053061'))  
+brx <- seq(-2,6,2)
+labs <- c("-2", "0","2", "4", "6")
+#plot the large ensemble median
+pdf("../CESMLENS_maxT_meananAnom_stripes.pdf")
+
+
+mean_an_tn_lens %>%
+  ggplot(aes(x = as.factor(year), fill = meantn)) +
+  geom_bar(position = "fill", width = 1) +
+  scale_y_continuous(expand = c(0, 0.01)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_gradientn(colors = temp_cols, "Average Daily Maximum Temperature Anomaly",
+                       breaks = brx,
+                       limits = c(-2, 6),
+                       labels = labs) +
+  labs(title = "CESM LENS Ensemble Mediaan for Russian River",
+       subtitle = "One Stripe = One Year, Left: 2005, Right: 2080") +
+  geom_vline(aes(xintercept=11), linetype="dashed") +
+  geom_vline(aes(xintercept=20), linetype="dashed") +
+  theme_void() +
+  theme(legend.position = "bottom")
+dev.off()
